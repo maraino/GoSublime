@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"go/ast"
 	"go/build"
 	"go/parser"
@@ -20,6 +21,8 @@ var (
 		m map[string]*qidNode
 	}{m: map[string]*qidNode{}}
 )
+
+var ignores = loadGoIgnores()
 
 type qidNode struct {
 	sync.Mutex
@@ -116,7 +119,7 @@ func importPaths(environ map[string]string, installSuffix string) ([]string, err
 	if installSuffix != "" {
 		osArchSfx += "_" + installSuffix
 	}
-	for root, _ := range paths {
+	for root := range paths {
 		root = filepath.Join(root, "pkg", osArchSfx)
 		walkF := func(p string, info os.FileInfo, err error) error {
 			if err == nil && !info.IsDir() {
@@ -372,10 +375,35 @@ func dirNames(dir string, match func(basename string) bool) []string {
 			path := filepath.Join(dir, nm)
 			fi := fileInfo(path)
 			if fi != nil && fi.IsDir() {
-				dirs = append(dirs, path)
+				if _, ok := ignores[path]; !ok {
+					dirs = append(dirs, path)
+				}
 			}
 		}
 	}
 
 	return dirs
+}
+
+// loadGoIgnores reads the $GOPATH/.goignore file and populates a map
+// containing each line in the file. It tolerates any errors (e.g. no such
+// file), and returns the ignore map.
+func loadGoIgnores() map[string]struct{} {
+	ignores := make(map[string]struct{})
+	path := filepath.Join(os.Getenv("GOPATH"), ".goignore")
+	file, err := os.Open(path)
+	defer file.Close()
+	if err != nil {
+		return ignores
+	}
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if len(line) > 0 {
+			ignores[line] = struct{}{}
+		}
+	}
+
+	return ignores
 }
